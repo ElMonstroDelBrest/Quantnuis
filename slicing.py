@@ -76,9 +76,9 @@ if __name__ == "__main__":
     import sys
     
     # Configuration
-    annotations_file = "annotations_raw.csv"
-    output_directory = "slices"
-    output_annotation_csv = "annotation.csv"
+    annotations_file = "20250928_122537_annotations_raw.csv"
+    output_directory = "slices2"
+    output_annotation_csv = "annotation2.csv"
     
     # Chercher automatiquement un fichier audio dans le répertoire courant
     audio_extensions = ['.wav', '.mp3', '.flac', '.m4a', '.ogg', '.aac']
