@@ -9,6 +9,19 @@ import pickle
 from datetime import datetime, timedelta
 from tensorflow.keras.models import load_model  # pyright: ignore
 
+# Configuration des chemins
+DATA_DIR = "data"
+ANNOTATION_CSV = os.path.join(DATA_DIR, "annotation.csv")
+MODELS_DIR = "models"
+MODEL_PATH = os.path.join(MODELS_DIR, "model_improved.h5")
+MODEL_OLD_PATH = os.path.join(MODELS_DIR, "model.h5")
+SCALER_PATH = os.path.join(MODELS_DIR, "scaler.pkl")
+OUTPUT_DIR = "output"
+OUTPUT_CSV = os.path.join(OUTPUT_DIR, "predictions_raw.csv")
+
+# Créer les dossiers s'ils n'existent pas
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 # Détecter quelle fonction chroma est disponible
 _chroma_func = None
 if hasattr(librosa.feature, 'chroma_stft'):
@@ -86,7 +99,9 @@ def extract_features_from_audio(audio_data, sample_rate):
         # 6. Tempo (rythme) - peut échouer sur de très courts segments
         try:
             tempo, _ = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
-            features.append(float(tempo))
+            # Extraire la valeur scalaire avant conversion
+            tempo_value = float(np.asarray(tempo).item()) if np.ndim(tempo) > 0 else float(tempo)
+            features.append(tempo_value)
         except:
             # Si le tempo ne peut pas être calculé, utiliser une valeur par défaut
             features.append(120.0)  # BPM par défaut
@@ -145,7 +160,7 @@ def merge_consecutive_segments(predictions, max_gap_seconds=10):
     
     return merged
 
-def get_real_labels(annotation_csv='annotation.csv'):
+def get_real_labels(annotation_csv=ANNOTATION_CSV):
     """
     Lit les labels réels depuis le fichier annotation.csv
     """
@@ -202,7 +217,7 @@ def predict_segment(model, audio_segment, sample_rate, label_mapping, real_label
     return predicted_label, confidence
 
 def analyze_full_audio(model_path, audio_path, segment_duration=30, overlap=5, 
-                       min_confidence=50, output_csv='predictions_raw.csv', scaler_path='scaler.pkl'):
+                       min_confidence=50, output_csv=OUTPUT_CSV, scaler_path=SCALER_PATH):
     """
     Analyse un fichier audio complet et génère un CSV de prédictions
     
@@ -341,14 +356,12 @@ def analyze_full_audio(model_path, audio_path, segment_duration=30, overlap=5,
     return df_predictions
 
 if __name__ == "__main__":
-    # Chemin par défaut du modèle amélioré
-    model_path = "model_improved.h5"
-    
     # Vérifier que le modèle existe, sinon essayer l'ancien modèle
+    model_path = MODEL_PATH
     if not os.path.exists(model_path):
-        model_path = "model.h5"
+        model_path = MODEL_OLD_PATH
         if not os.path.exists(model_path):
-            print(f"ERREUR: Aucun modèle trouvé (model_improved.h5 ou model.h5).")
+            print(f"ERREUR: Aucun modèle trouvé ({MODEL_PATH} ou {MODEL_OLD_PATH}).")
             print("Veuillez d'abord entraîner le modèle en exécutant model_improved.py")
             sys.exit(1)
         else:
@@ -367,8 +380,8 @@ if __name__ == "__main__":
         
         for file in os.listdir('.'):
             if any(file.lower().endswith(ext) for ext in audio_extensions):
-                # Ignorer les fichiers dans le dossier slices
-                if not file.startswith('slices'):
+                # Ignorer les fichiers dans les dossiers data et output
+                if not file.startswith('data') and not file.startswith('output'):
                     audio_path = file
                     break
         
@@ -387,10 +400,6 @@ if __name__ == "__main__":
     segment_duration = 30  # secondes
     overlap = 5  # secondes
     min_confidence = 50  # pourcentage
-    output_csv = "predictions_raw.csv"
-    
-    # Chemin vers le scaler (pour le modèle amélioré)
-    scaler_path = "scaler.pkl"
     
     # Analyser le fichier audio complet
     analyze_full_audio(
@@ -398,7 +407,5 @@ if __name__ == "__main__":
         audio_path=audio_path,
         segment_duration=segment_duration,
         overlap=overlap,
-        min_confidence=min_confidence,
-        output_csv=output_csv,
-        scaler_path=scaler_path
+        min_confidence=min_confidence
     )

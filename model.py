@@ -10,13 +10,22 @@ from tensorflow.keras.models import Sequential  # pyright: ignore
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Bidirectional  # pyright: ignore
 from tensorflow.keras.optimizers import Adam  # pyright: ignore
 
+# Configuration des chemins
+DATA_DIR = "data"
+SLICES_DIR = os.path.join(DATA_DIR, "slices")
+ANNOTATION_CSV = os.path.join(DATA_DIR, "annotation.csv")
+MODELS_DIR = "models"
+MODEL_PATH = os.path.join(MODELS_DIR, "model.h5")
+
+os.makedirs(MODELS_DIR, exist_ok=True)
+
 features = []
 label = []
 
-df = pd.read_csv('annotation.csv')
+df = pd.read_csv(ANNOTATION_CSV)
 
 for i in range(len(df)):
-    audio_path = r'slices/' + str(df['nfile'].values[i])
+    audio_path = os.path.join(SLICES_DIR, str(df['nfile'].values[i]))
     original_audio, sample_rate = librosa.load(audio_path, res_type='kaiser_fast')
     mels = np.mean(librosa.feature.melspectrogram(y=original_audio, sr=sample_rate).T, axis=0)
     features.append(mels)
@@ -54,6 +63,6 @@ model.compile(optimizer=Adam(learning_rate=0.001), loss='categorical_crossentrop
 
 model.fit(X_train, Y_train, epochs=100, batch_size=32, validation_data=(X_test, Y_test))
 
-model.save('model.h5')
+model.save(MODEL_PATH)
 
-print("Model saved to model.h5")
+print(f"Model saved to {MODEL_PATH}")

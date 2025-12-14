@@ -15,6 +15,37 @@ from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLRO
 import warnings
 warnings.filterwarnings('ignore')
 
+# Configuration GPU
+import tensorflow as tf
+print("TensorFlow version:", tf.__version__)
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    print(f"✓ {len(gpus)} GPU(s) détecté(s)")
+    try:
+        # Permettre la croissance de la mémoire GPU
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("✓ Configuration GPU activée")
+    except RuntimeError as e:
+        print(f"⚠ Erreur de configuration GPU: {e}")
+else:
+    print("⚠ Aucun GPU détecté, utilisation du CPU")
+
+# Configuration des chemins
+DATA_DIR = "data"
+SLICES_DIR = os.path.join(DATA_DIR, "slices")
+ANNOTATION_CSV = os.path.join(DATA_DIR, "annotation.csv")
+MODELS_DIR = "models"
+MODEL_PATH = os.path.join(MODELS_DIR, "model_improved.h5")
+MODEL_BEST_PATH = os.path.join(MODELS_DIR, "model_improved_best.h5")
+SCALER_PATH = os.path.join(MODELS_DIR, "scaler.pkl")
+OUTPUT_DIR = "output"
+HISTORY_IMG = os.path.join(OUTPUT_DIR, "training_history_improved.png")
+
+# Créer les dossiers s'ils n'existent pas
+os.makedirs(MODELS_DIR, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
 # Détecter quelle fonction chroma est disponible
 _chroma_func = None
 if hasattr(librosa.feature, 'chroma_stft'):
@@ -103,7 +134,9 @@ def extract_enhanced_features(audio_path, sample_rate=22050):
         # 6. Tempo (rythme) - peut échouer sur de très courts segments
         try:
             tempo, _ = librosa.beat.beat_track(y=original_audio, sr=sr)
-            features.append(float(tempo))
+            # Extraire la valeur scalaire avant conversion
+            tempo_value = float(np.asarray(tempo).item()) if np.ndim(tempo) > 0 else float(tempo)
+            features.append(tempo_value)
         except:
             # Si le tempo ne peut pas être calculé, utiliser une valeur par défaut
             features.append(120.0)  # BPM par défaut
@@ -149,11 +182,11 @@ print("="*60)
 features = []
 labels = []
 
-df = pd.read_csv('annotation.csv')
+df = pd.read_csv(ANNOTATION_CSV)
 print(f"\nChargement de {len(df)} fichiers audio...")
 
 for i in range(len(df)):
-    audio_path = os.path.join('slices', str(df['nfile'].values[i]))
+    audio_path = os.path.join(SLICES_DIR, str(df['nfile'].values[i]))
     
     if not os.path.exists(audio_path):
         print(f"ATTENTION: Fichier non trouvé: {audio_path}")
@@ -189,9 +222,9 @@ X = scaler.fit_transform(X)
 
 # Sauvegarder le scaler pour l'utiliser lors de la prédiction
 import pickle
-with open('scaler.pkl', 'wb') as f:
+with open(SCALER_PATH, 'wb') as f:
     pickle.dump(scaler, f)
-print("✓ Scaler sauvegardé dans 'scaler.pkl'")
+print(f"✓ Scaler sauvegardé dans '{SCALER_PATH}'")
 
 # Encoder les labels en one-hot
 Y_categorical = to_categorical(Y)
@@ -253,7 +286,7 @@ print(f"Augmentation des {len(train_indices)} échantillons d'entraînement...")
 temp_path = 'temp_aug.wav'
 
 for idx in train_indices:
-    audio_path = os.path.join('slices', str(df['nfile'].values[idx]))
+    audio_path = os.path.join(SLICES_DIR, str(df['nfile'].values[idx]))
     label = df['label'].values[idx]
     
     try:
@@ -408,7 +441,7 @@ callbacks = [
     ),
     # Sauvegarder le meilleur modèle
     ModelCheckpoint(
-        'model_improved_best.h5',
+        MODEL_BEST_PATH,
         monitor='val_loss',
         save_best_only=True,
         verbose=1
@@ -438,8 +471,8 @@ history = model.fit(
 )
 
 # Sauvegarder le modèle final
-model.save('model_improved.h5')
-print("\n✓ Modèle sauvegardé dans 'model_improved.h5'")
+model.save(MODEL_PATH)
+print(f"\n✓ Modèle sauvegardé dans '{MODEL_PATH}'")
 
 # ÉVALUATION
 print("\n" + "="*60)
@@ -479,8 +512,8 @@ plt.ylabel('Accuracy')
 plt.legend()
 
 plt.tight_layout()
-plt.savefig('training_history_improved.png', dpi=150)
-print("\n✓ Graphiques sauvegardés dans 'training_history_improved.png'")
+plt.savefig(HISTORY_IMG, dpi=150)
+print(f"\n✓ Graphiques sauvegardés dans '{HISTORY_IMG}'")
 
 print("\n" + "="*60)
 print("ENTRAÎNEMENT TERMINÉ!")

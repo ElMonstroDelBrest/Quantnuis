@@ -1,4 +1,10 @@
 import pandas as pd
+import os
+
+# Configuration des chemins
+DATA_DIR = "data"
+RAW_DIR = os.path.join(DATA_DIR, "raw")
+os.makedirs(RAW_DIR, exist_ok=True)
 
 raw_data = """
 | Start | End | Label | Reliability |
@@ -47,9 +53,15 @@ for line in lines:
         rows.append(parts[:4])
 
 # DataFrame des données
-df = pd.DataFrame(rows, columns=['Start', 'End', 'Label', 'Reliability'])
+df = pd.DataFrame({
+    'Start': [row[0] for row in rows],
+    'End': [row[1] for row in rows],
+    'Label': [row[2] for row in rows],
+    'Reliability': [row[3] for row in rows]
+})
 df.set_index('Start', inplace=True)
 
 # Enregistrement du DataFrame dans un fichier CSV
-df.to_csv('annotations_raw.csv', index=True)
-print("Données enregistrées dans 'annotations_raw.csv'")
+output_path = os.path.join(RAW_DIR, 'annotations_raw.csv')
+df.to_csv(output_path, index=True)
+print(f"Données enregistrées dans '{output_path}'")

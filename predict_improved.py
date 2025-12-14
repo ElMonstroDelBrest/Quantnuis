@@ -8,6 +8,14 @@ import tensorflow as tf
 import pickle
 from tensorflow.keras.models import load_model  # pyright: ignore
 
+# Configuration des chemins
+DATA_DIR = "data"
+ANNOTATION_CSV = os.path.join(DATA_DIR, "annotation.csv")
+SLICES_DIR = os.path.join(DATA_DIR, "slices")
+MODELS_DIR = "models"
+MODEL_PATH = os.path.join(MODELS_DIR, "model_improved.h5")
+SCALER_PATH = os.path.join(MODELS_DIR, "scaler.pkl")
+
 # Détecter quelle fonction chroma est disponible
 _chroma_func = None
 if hasattr(librosa.feature, 'chroma_stft'):
@@ -85,7 +93,9 @@ def extract_enhanced_features(audio_path, sample_rate=22050):
         # 6. Tempo (rythme) - peut échouer sur de très courts segments
         try:
             tempo, _ = librosa.beat.beat_track(y=original_audio, sr=sr)
-            features.append(float(tempo))
+            # Extraire la valeur scalaire avant conversion
+            tempo_value = float(np.asarray(tempo).item()) if np.ndim(tempo) > 0 else float(tempo)
+            features.append(tempo_value)
         except:
             # Si le tempo ne peut pas être calculé, utiliser une valeur par défaut
             features.append(120.0)  # BPM par défaut
@@ -97,7 +107,7 @@ def extract_enhanced_features(audio_path, sample_rate=22050):
         print(f"Erreur lors de l'extraction des caractéristiques: {e}")
         return None
 
-def get_real_labels(annotation_csv='annotation.csv'):
+def get_real_labels(annotation_csv=ANNOTATION_CSV):
     """
     Lit les labels réels depuis le fichier annotation.csv
     """
@@ -113,7 +123,7 @@ def get_real_labels(annotation_csv='annotation.csv'):
     
     return label_mapping, unique_labels
 
-def predict_audio(model_path, audio_path, scaler_path='scaler.pkl'):
+def predict_audio(model_path, audio_path, scaler_path=SCALER_PATH):
     """
     Charge le modèle amélioré et prédit le label d'un fichier audio
     """
@@ -195,12 +205,9 @@ def predict_audio(model_path, audio_path, scaler_path='scaler.pkl'):
     return predicted_label, confidence
 
 if __name__ == "__main__":
-    # Chemin par défaut du modèle amélioré
-    model_path = "model_improved.h5"
-    
     # Vérifier que le modèle existe
-    if not os.path.exists(model_path):
-        print(f"ERREUR: Le modèle {model_path} n'existe pas.")
+    if not os.path.exists(MODEL_PATH):
+        print(f"ERREUR: Le modèle {MODEL_PATH} n'existe pas.")
         print("Veuillez d'abord entraîner le modèle amélioré en exécutant model_improved.py")
         sys.exit(1)
     
@@ -209,17 +216,16 @@ if __name__ == "__main__":
         audio_path = sys.argv[1]
     else:
         # Utiliser le premier fichier du dossier slices par défaut
-        slices_dir = "slices"
-        if os.path.exists(slices_dir) and os.listdir(slices_dir):
-            audio_files = sorted([f for f in os.listdir(slices_dir) if f.endswith('.wav')])
+        if os.path.exists(SLICES_DIR) and os.listdir(SLICES_DIR):
+            audio_files = sorted([f for f in os.listdir(SLICES_DIR) if f.endswith('.wav')])
             if audio_files:
-                audio_path = os.path.join(slices_dir, audio_files[0])
+                audio_path = os.path.join(SLICES_DIR, audio_files[0])
                 print(f"Aucun fichier spécifié, utilisation de {audio_path} par défaut\n")
             else:
-                print("ERREUR: Aucun fichier .wav trouvé dans le dossier 'slices'")
+                print(f"ERREUR: Aucun fichier .wav trouvé dans le dossier '{SLICES_DIR}'")
                 sys.exit(1)
         else:
-            print("ERREUR: Le dossier 'slices' n'existe pas ou est vide")
+            print(f"ERREUR: Le dossier '{SLICES_DIR}' n'existe pas ou est vide")
             print("Usage: python predict_improved.py [chemin_vers_fichier_audio]")
             sys.exit(1)
     
@@ -229,4 +235,4 @@ if __name__ == "__main__":
         sys.exit(1)
     
     # Faire la prédiction
-    predict_audio(model_path, audio_path)
+    predict_audio(MODEL_PATH, audio_path)

@@ -47,9 +47,21 @@ source venv/bin/activate
 # Sur Windows:
 # venv\Scripts\activate
 
-# Installer les dépendances
-pip install tensorflow librosa soundfile pandas numpy scikit-learn matplotlib
+# Installer les dépendances de base
+pip install librosa soundfile pandas numpy scikit-learn matplotlib
+
+# Installer TensorFlow (choisir selon votre configuration)
+# Pour CPU uniquement:
+pip install tensorflow
+
+# Pour GPU NVIDIA (recommandé si vous avez un GPU):
+pip install tensorflow[and-cuda]
+
+# Vérifier la configuration GPU:
+python test_gpu.py
 ```
+
+> **📖 Guide GPU :** Consultez `SETUP_GPU.md` pour la configuration détaillée du GPU NVIDIA.
 
 ### Dépendances Principales
 
@@ -66,20 +78,28 @@ pip install tensorflow librosa soundfile pandas numpy scikit-learn matplotlib
 ## 📁 Structure du Projet
 
 ```
-TensorFlow_Test/
-├── slices/                    # Dossier contenant les segments audio d'entraînement
-│   ├── slice_001.wav
-│   ├── slice_002.wav
-│   └── ...
-├── annotation.csv             # Fichier d'annotations (labels des segments)
+Quantnuis-1/
+├── data/                      # Dossier contenant toutes les données
+│   ├── raw/                   # Fichiers CSV bruts d'annotations
+│   │   └── annotations_raw.csv
+│   ├── slices/                # Segments audio d'entraînement
+│   │   ├── slice_001.wav
+│   │   ├── slice_002.wav
+│   │   └── ...
+│   └── annotation.csv         # Fichier d'annotations principal (labels des segments)
+├── models/                    # Modèles entraînés et scalers
+│   ├── model_improved.h5      # Modèle entraîné sauvegardé
+│   ├── model_improved_best.h5 # Meilleur modèle (selon validation)
+│   └── scaler.pkl             # Scaler pour normaliser les nouvelles données
+├── output/                    # Résultats et prédictions
+│   ├── predictions_raw.csv    # Prédictions générées
+│   └── training_history_improved.png
+├── main.py                    # Script principal (menu interactif)
+├── annotation.py              # Script pour créer le fichier d'annotations
+├── slicing.py                 # Script pour découper un fichier audio en segments
 ├── model_improved.py          # Script d'entraînement du modèle amélioré
-├── model_improved.h5          # Modèle entraîné sauvegardé
-├── model_improved_best.h5     # Meilleur modèle (selon validation)
-├── scaler.pkl                 # Scaler pour normaliser les nouvelles données
 ├── predict_improved.py        # Script de prédiction pour un fichier
 ├── predict_full_audio.py      # Script d'analyse d'un fichier audio complet
-├── slicing.py                 # Script pour découper un fichier audio en segments
-├── annotation.py              # Script pour créer le fichier d'annotations
 └── README.md                  # Ce fichier
 ```
 
@@ -87,32 +107,72 @@ TensorFlow_Test/
 
 ## 🚀 Utilisation
 
-### 1. Entraîner le Modèle
+### Méthode Simple : Script Principal
 
-Pour entraîner le modèle amélioré avec vos données :
+Le moyen le plus simple de lancer les différentes étapes est d'utiliser le script principal :
+
+```bash
+python main.py
+```
+
+Cela affiche un menu interactif avec toutes les options disponibles.
+
+Vous pouvez aussi lancer directement une action :
+
+```bash
+python main.py 1  # Créer les annotations
+python main.py 2  # Découper un fichier audio
+python main.py 3  # Entraîner le modèle
+python main.py 4  # Prédire sur un fichier
+python main.py 5  # Analyser un fichier complet
+```
+
+### Méthode Avancée : Scripts Individuels
+
+#### 1. Créer le Fichier d'Annotations
+
+```bash
+python annotation.py
+```
+
+Génère `data/raw/annotations_raw.csv` à partir des données brutes dans le script.
+
+#### 2. Découper un Fichier Audio
+
+```bash
+python slicing.py [chemin_vers_fichier_audio]
+```
+
+**Ce que fait le script :**
+- Lit les annotations depuis `data/raw/annotations_raw.csv` (ou le plus récent fichier `*_annotations_raw.csv`)
+- Découpe le fichier audio en segments selon les timestamps
+- Sauvegarde les segments dans `data/slices/`
+- Crée `data/annotation.csv` avec les métadonnées
+
+**Sans argument**, le script cherche automatiquement un fichier audio dans le répertoire courant.
+
+#### 3. Entraîner le Modèle
 
 ```bash
 python model_improved.py
 ```
 
 **Ce que fait le script :**
-- Extrait les caractéristiques audio de tous les fichiers dans `slices/`
+- Extrait les caractéristiques audio de tous les fichiers dans `data/slices/`
 - Normalise les données
 - Augmente les données (ajout de bruit, time stretching, pitch shifting)
 - Entraîne le modèle avec validation
-- Sauvegarde le modèle dans `model_improved.h5`
-- Sauvegarde le scaler dans `scaler.pkl`
-- Génère des graphiques d'évolution dans `training_history_improved.png`
+- Sauvegarde le modèle dans `models/model_improved.h5`
+- Sauvegarde le scaler dans `models/scaler.pkl`
+- Génère des graphiques dans `output/training_history_improved.png`
 
 **Fichiers générés :**
-- `model_improved.h5` : Modèle final
-- `model_improved_best.h5` : Meilleur modèle (selon validation loss)
-- `scaler.pkl` : Normaliseur pour les nouvelles prédictions
-- `training_history_improved.png` : Graphiques d'évolution
+- `models/model_improved.h5` : Modèle final
+- `models/model_improved_best.h5` : Meilleur modèle (selon validation loss)
+- `models/scaler.pkl` : Normaliseur pour les nouvelles prédictions
+- `output/training_history_improved.png` : Graphiques d'évolution
 
-### 2. Faire une Prédiction sur un Fichier
-
-Pour prédire la classe d'un fichier audio :
+#### 4. Faire une Prédiction sur un Fichier
 
 ```bash
 python predict_improved.py [chemin_vers_fichier_audio]
@@ -120,54 +180,82 @@ python predict_improved.py [chemin_vers_fichier_audio]
 
 **Exemple :**
 ```bash
-python predict_improved.py slices/slice_001.wav
+python predict_improved.py data/slices/slice_001.wav
 ```
 
-**Sans argument**, le script utilise le premier fichier `.wav` trouvé dans `slices/`.
+**Sans argument**, le script utilise le premier fichier `.wav` trouvé dans `data/slices/`.
 
-### 3. Analyser un Fichier Audio Complet
-
-Pour analyser un fichier audio long (plusieurs heures) :
+#### 5. Analyser un Fichier Audio Complet
 
 ```bash
 python predict_full_audio.py [chemin_vers_fichier_audio]
 ```
 
-**Paramètres configurables** (dans le script, lignes 273-276) :
+**Paramètres configurables** (dans le script) :
 - `segment_duration` : Durée de chaque segment en secondes (défaut: 30)
 - `overlap` : Chevauchement entre segments en secondes (défaut: 5)
 - `min_confidence` : Confiance minimale pour inclure une prédiction (défaut: 50%)
-- `output_csv` : Nom du fichier CSV de sortie (défaut: "predictions_raw.csv")
 
 **Exemple :**
 ```bash
 python predict_full_audio.py mon_fichier_audio.wav
 ```
 
-Le script génère un fichier CSV (`predictions_raw.csv`) avec les prédictions pour chaque segment.
+Le script génère un fichier CSV (`output/predictions_raw.csv`) avec les prédictions pour chaque segment.
 
 ---
 
 ## 📥 Ajout de Nouvelles Données
 
-### Méthode 1 : Ajout Manuel de Segments
+> **📖 Guide détaillé :** Consultez `AJOUT_DONNEES.md` pour un guide complet étape par étape.
 
-#### Étape 1 : Préparer les Fichiers Audio
+### Workflow Rapide
 
-1. **Découper votre fichier audio en segments** (si nécessaire) :
-   ```bash
-   python slicing.py [fichier_audio] [fichier_annotations]
+1. **Préparer le CSV d'annotations** : Placez votre fichier CSV dans `data/raw/` avec le format :
+   ```csv
+   Start,End,Label,Reliability
+   00:09:34,00:10:12,1,3
    ```
 
-   Le script `slicing.py` découpe un fichier audio en segments basés sur les annotations dans un fichier CSV.
+2. **Découper l'audio** : 
+   ```bash
+   python main.py 2
+   # Entrez le chemin vers votre fichier audio
+   ```
+   Les nouveaux slices seront **automatiquement ajoutés** à `data/slices/` et les annotations à `data/annotation.csv` (sans doublons).
 
-2. **Placer les segments dans le dossier `slices/`** :
-   - Format : fichiers `.wav`
-   - Nommage : `slice_XXX.wav` (ex: `slice_028.wav`, `slice_029.wav`, etc.)
+3. **Réentraîner le modèle** (optionnel) :
+   ```bash
+   python main.py 3
+   ```
 
-#### Étape 2 : Créer/Mettre à Jour le Fichier d'Annotations
+### Méthode 1 : Ajout Manuel de Segments
 
-Le fichier `annotation.csv` doit avoir le format suivant :
+#### Étape 1 : Créer les Annotations Brutes
+
+1. **Créer le fichier d'annotations brutes** :
+   ```bash
+   python annotation.py
+   ```
+   
+   Cela génère `data/raw/annotations_raw.csv` avec les timestamps et labels.
+
+#### Étape 2 : Découper le Fichier Audio
+
+1. **Découper votre fichier audio en segments** :
+   ```bash
+   python slicing.py [fichier_audio]
+   ```
+
+   Le script `slicing.py` :
+   - Lit automatiquement `data/raw/annotations_raw.csv` (ou le plus récent)
+   - Découpe le fichier audio en segments basés sur les annotations
+   - Sauvegarde les segments dans `data/slices/`
+   - Crée `data/annotation.csv` avec les métadonnées
+
+#### Étape 3 : Vérifier le Fichier d'Annotations
+
+Le fichier `data/annotation.csv` doit avoir le format suivant :
 
 ```csv
 nfile,length,label,reliability
@@ -183,33 +271,9 @@ slice_029.wav,30,2,2
 - `label` : Classe/label du segment (entier, ex: 1, 2, 3, 4)
 - `reliability` : Fiabilité de l'annotation (1-3, où 3 = très fiable)
 
-**Exemple de création/mise à jour :**
+**Note :** Le fichier `data/annotation.csv` est généré automatiquement par `slicing.py`. Si vous ajoutez manuellement des fichiers audio dans `data/slices/`, vous devrez mettre à jour `data/annotation.csv` manuellement.
 
-Vous pouvez éditer `annotation.csv` manuellement ou utiliser un script Python :
-
-```python
-import pandas as pd
-
-# Lire le fichier existant
-df = pd.read_csv('annotation.csv')
-
-# Ajouter de nouvelles lignes
-new_data = {
-    'nfile': ['slice_028.wav', 'slice_029.wav'],
-    'length': [25, 30],
-    'label': [1, 2],
-    'reliability': [3, 3]
-}
-df_new = pd.DataFrame(new_data)
-
-# Concaténer avec les données existantes
-df = pd.concat([df, df_new], ignore_index=True)
-
-# Sauvegarder
-df.to_csv('annotation.csv', index=False)
-```
-
-#### Étape 3 : Réentraîner le Modèle
+#### Étape 4 : Réentraîner le Modèle
 
 Une fois les nouvelles données ajoutées :
 
@@ -221,7 +285,7 @@ Le modèle sera réentraîné avec toutes les données (anciennes + nouvelles).
 
 ### Méthode 2 : Utiliser le Script d'Annotation
 
-Le script `annotation.py` peut être utilisé pour créer le fichier d'annotations à partir de données brutes. Consultez le fichier pour voir comment l'utiliser.
+Le script `annotation.py` crée le fichier `data/raw/annotations_raw.csv` à partir de données brutes. Modifiez la variable `raw_data` dans le script pour ajouter vos propres annotations.
 
 ---
 
@@ -287,7 +351,17 @@ Pour chaque échantillon d'entraînement, le modèle crée plusieurs versions au
 
 ## 📊 Format des Données
 
-### Fichier d'Annotations (`annotation.csv`)
+### Fichier d'Annotations Brutes (`data/raw/annotations_raw.csv`)
+
+Format des annotations brutes avec timestamps :
+
+```csv
+Start,End,Label,Reliability
+00:09:34,00:10:12,1,3
+00:11:30,00:11:43,2,3
+```
+
+### Fichier d'Annotations Principal (`data/annotation.csv`)
 
 ```csv
 nfile,length,label,reliability
@@ -316,7 +390,7 @@ slice_002.wav,13,2,3
 - Sample rate : Toute valeur (sera convertie à 22050 Hz)
 - Canaux : Mono ou stéréo (sera converti en mono)
 
-### Fichier de Prédictions (`predictions_raw.csv`)
+### Fichier de Prédictions (`output/predictions_raw.csv`)
 
 Format généré par `predict_full_audio.py` :
 
@@ -358,10 +432,16 @@ Start,End,Label,Reliability
 - Fusionne les segments consécutifs
 - Génère un CSV avec les résultats
 
+### `main.py`
+**Script principal avec menu interactif**
+- Interface simple pour lancer toutes les étapes
+- Usage : `python main.py` ou `python main.py [numéro]`
+
 ### `slicing.py`
 **Découpage d'un fichier audio**
 - Découpe un fichier audio en segments basés sur des annotations
-- Génère les fichiers dans `slices/`
+- Génère les fichiers dans `data/slices/`
+- Crée `data/annotation.csv` automatiquement
 
 ### `annotation.py`
 **Création du fichier d'annotations**
@@ -379,8 +459,8 @@ Start,End,Label,Reliability
 
 ### Erreur : "File not found"
 **Solution :** Vérifiez que :
-- Les fichiers audio sont dans le dossier `slices/`
-- Les noms dans `annotation.csv` correspondent exactement aux noms des fichiers
+- Les fichiers audio sont dans le dossier `data/slices/`
+- Les noms dans `data/annotation.csv` correspondent exactement aux noms des fichiers
 - Les chemins sont corrects
 
 ### Performance Faible
@@ -424,7 +504,7 @@ Start,End,Label,Reliability
 
 3. **Qualité des annotations** : La qualité du modèle dépend directement de la qualité des annotations. Vérifiez que les labels sont corrects.
 
-4. **Normalisation** : Le scaler (`scaler.pkl`) doit être utilisé avec le même modèle. Si vous réentraînez le modèle, régénérez le scaler.
+4. **Normalisation** : Le scaler (`models/scaler.pkl`) doit être utilisé avec le même modèle. Si vous réentraînez le modèle, régénérez le scaler.
 
 5. **Compatibilité** : Le modèle sauvegardé (`model_improved.h5`) est compatible avec TensorFlow 2.x.
 
