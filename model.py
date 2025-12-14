@@ -10,6 +10,22 @@ from tensorflow.keras.models import Sequential  # pyright: ignore
 from tensorflow.keras.layers import Dense, Dropout, LSTM, Bidirectional  # pyright: ignore
 from tensorflow.keras.optimizers import Adam  # pyright: ignore
 
+# Configuration GPU
+print("TensorFlow version:", tf.__version__)
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    print(f"✓ {len(gpus)} GPU(s) détecté(s)")
+    try:
+        # Permettre la croissance de la mémoire GPU
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("✓ Configuration GPU activée")
+    except RuntimeError as e:
+        print(f"⚠ Erreur de configuration GPU: {e}")
+else:
+    print("⚠ Aucun GPU détecté, utilisation du CPU")
+print()
+
 # Configuration des chemins
 DATA_DIR = "data"
 SLICES_DIR = os.path.join(DATA_DIR, "slices")

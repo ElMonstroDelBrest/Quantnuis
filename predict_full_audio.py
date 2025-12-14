@@ -9,6 +9,22 @@ import pickle
 from datetime import datetime, timedelta
 from tensorflow.keras.models import load_model  # pyright: ignore
 
+# Configuration GPU
+print("TensorFlow version:", tf.__version__)
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    print(f"✓ {len(gpus)} GPU(s) détecté(s)")
+    try:
+        # Permettre la croissance de la mémoire GPU
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("✓ Configuration GPU activée")
+    except RuntimeError as e:
+        print(f"⚠ Erreur de configuration GPU: {e}")
+else:
+    print("⚠ Aucun GPU détecté, utilisation du CPU")
+print()
+
 # Configuration des chemins
 DATA_DIR = "data"
 ANNOTATION_CSV = os.path.join(DATA_DIR, "annotation.csv")
@@ -16,6 +32,7 @@ MODELS_DIR = "models"
 MODEL_PATH = os.path.join(MODELS_DIR, "model_improved.h5")
 MODEL_OLD_PATH = os.path.join(MODELS_DIR, "model.h5")
 SCALER_PATH = os.path.join(MODELS_DIR, "scaler.pkl")
+LABEL_MAPPING_PATH = os.path.join(MODELS_DIR, "label_mapping.pkl")
 OUTPUT_DIR = "output"
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "predictions_raw.csv")
 
@@ -160,23 +177,19 @@ def merge_consecutive_segments(predictions, max_gap_seconds=10):
     
     return merged
 
-def get_real_labels(annotation_csv=ANNOTATION_CSV):
+def get_label_mapping():
     """
-    Lit les labels réels depuis le fichier annotation.csv
+    Charge le mapping des labels depuis le fichier sauvegardé
+    Retourne le mapping train_to_label (0->1, 1->2)
     """
-    if not os.path.exists(annotation_csv):
-        return None, None
-    
-    df = pd.read_csv(annotation_csv)
-    unique_labels = sorted(df['label'].unique())
-    
-    label_mapping = {}
-    for label in unique_labels:
-        label_mapping[label] = label
-    
-    return label_mapping, unique_labels
+    if os.path.exists(LABEL_MAPPING_PATH):
+        with open(LABEL_MAPPING_PATH, 'rb') as f:
+            return pickle.load(f)
+    else:
+        # Mapping par défaut si le fichier n'existe pas
+        return {0: 1, 1: 2}
 
-def predict_segment(model, audio_segment, sample_rate, label_mapping, real_labels, scaler=None):
+def predict_segment(model, audio_segment, sample_rate, label_mapping, scaler=None):
     """
     Prédit le label d'un segment audio
     """
@@ -195,22 +208,11 @@ def predict_segment(model, audio_segment, sample_rate, label_mapping, real_label
     # Faire la prédiction
     prediction = model.predict(features, verbose=0)
     
-    # Obtenir l'index du modèle avec la plus haute probabilité
+    # Obtenir l'index du modèle avec la plus haute probabilité (0 ou 1)
     model_index = np.argmax(prediction[0])
     
-    # Convertir l'index du modèle vers le label réel
-    if label_mapping and model_index in label_mapping:
-        predicted_label = label_mapping[model_index]
-    elif label_mapping and real_labels:
-        # Si l'index 0 est prédit mais n'existe pas, prendre le deuxième meilleur
-        sorted_indices = np.argsort(prediction[0])[::-1]
-        for idx in sorted_indices:
-            if idx in label_mapping:
-                predicted_label = label_mapping[idx]
-                model_index = idx
-                break
-    else:
-        predicted_label = model_index
+    # Convertir l'index du modèle vers le label réel (1=bolides, 2=autres)
+    predicted_label = label_mapping.get(model_index, model_index + 1)
     
     confidence = prediction[0][model_index] * 100
     
@@ -230,8 +232,8 @@ def analyze_full_audio(model_path, audio_path, segment_duration=30, overlap=5,
         output_csv: Nom du fichier CSV de sortie
         scaler_path: Chemin vers le fichier scaler pour normalisation (défaut: 'scaler.pkl')
     """
-    # Obtenir le mapping des labels réels
-    label_mapping, real_labels = get_real_labels()
+    # Obtenir le mapping des labels (train_to_label: 0->1, 1->2)
+    label_mapping = get_label_mapping()
     
     # Charger le scaler si disponible
     scaler = None
@@ -290,7 +292,7 @@ def analyze_full_audio(model_path, audio_path, segment_duration=30, overlap=5,
         
         # Faire la prédiction
         predicted_label, confidence = predict_segment(
-            model, segment, sample_rate, label_mapping, real_labels, scaler
+            model, segment, sample_rate, label_mapping, scaler
         )
         
         # Ignorer si la prédiction a échoué

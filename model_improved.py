@@ -7,6 +7,7 @@ import soundfile as sf
 import tensorflow as tf
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.utils import to_categorical  # pyright: ignore
 from tensorflow.keras.models import Sequential  # pyright: ignore
 from tensorflow.keras.layers import Dense, Dropout, Conv1D, MaxPooling1D, Flatten, BatchNormalization  # pyright: ignore
@@ -16,7 +17,6 @@ import warnings
 warnings.filterwarnings('ignore')
 
 # Configuration GPU
-import tensorflow as tf
 print("TensorFlow version:", tf.__version__)
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
@@ -213,25 +213,52 @@ print(f"  Dimension des caractéristiques: {len(features[0])}")
 
 # Convertir en arrays numpy
 X = np.array(features)
-Y = np.array(labels)
+Y_original = np.array(labels)  # Labels originaux (1=bolides, 2=autres)
+
+# Créer un mapping pour l'entraînement : 1->0 (bolides), 2->1 (autres)
+# Cela permet d'utiliser un encodage one-hot standard (0, 1) au lieu de (0, 1, 2)
+label_to_train = {1: 0, 2: 1}  # Mapping label réel -> label entraînement
+train_to_label = {0: 1, 1: 2}  # Mapping inverse pour les prédictions
+
+# Remapper les labels pour l'entraînement
+Y = np.array([label_to_train[label] for label in Y_original])
 
 # Normaliser les caractéristiques (très important!)
 print("\nNormalisation des caractéristiques...")
 scaler = StandardScaler()
 X = scaler.fit_transform(X)
 
-# Sauvegarder le scaler pour l'utiliser lors de la prédiction
+# Sauvegarder le scaler et le mapping pour l'utiliser lors de la prédiction
 import pickle
 with open(SCALER_PATH, 'wb') as f:
     pickle.dump(scaler, f)
 print(f"✓ Scaler sauvegardé dans '{SCALER_PATH}'")
 
-# Encoder les labels en one-hot
-Y_categorical = to_categorical(Y)
-num_classes = Y_categorical.shape[1]
+# Sauvegarder le mapping des labels
+LABEL_MAPPING_PATH = os.path.join(MODELS_DIR, "label_mapping.pkl")
+with open(LABEL_MAPPING_PATH, 'wb') as f:
+    pickle.dump(train_to_label, f)
+print(f"✓ Mapping des labels sauvegardé dans '{LABEL_MAPPING_PATH}'")
+
+# Encoder les labels en one-hot (maintenant avec 2 classes : 0 et 1)
+Y_categorical = to_categorical(Y, num_classes=2)
+num_classes = 2
 
 print(f"\nNombre de classes: {num_classes}")
-print(f"Distribution des labels: {np.bincount(Y)}")
+print(f"Distribution des labels originaux: {np.bincount(Y_original)}")
+print(f"  - Label 1 (bolides): {np.sum(Y_original == 1)} échantillons")
+print(f"  - Label 2 (autres): {np.sum(Y_original == 2)} échantillons")
+print(f"Distribution des labels pour entraînement: {np.bincount(Y)}")
+print(f"  - Classe 0 (bolides): {np.sum(Y == 0)} échantillons")
+print(f"  - Classe 1 (autres): {np.sum(Y == 1)} échantillons")
+
+# Calculer les class weights pour gérer le déséquilibre (événements rares)
+# Plus de poids pour la classe minoritaire (bolides)
+class_weights = compute_class_weight('balanced', classes=np.unique(Y), y=Y)
+class_weight_dict = {i: class_weights[i] for i in range(len(class_weights))}
+print(f"\nClass weights calculés pour gérer le déséquilibre:")
+print(f"  - Classe 0 (bolides, rare): {class_weight_dict[0]:.3f}")
+print(f"  - Classe 1 (autres): {class_weight_dict[1]:.3f}")
 
 # Séparation train/test
 # Vérifier si on peut utiliser la stratification
@@ -287,7 +314,8 @@ temp_path = 'temp_aug.wav'
 
 for idx in train_indices:
     audio_path = os.path.join(SLICES_DIR, str(df['nfile'].values[idx]))
-    label = df['label'].values[idx]
+    label_original = df['label'].values[idx]
+    label_train = label_to_train[label_original]  # Convertir en label d'entraînement (0 ou 1)
     
     try:
         audio, sr = librosa.load(audio_path, sr=22050, res_type='kaiser_fast')
@@ -302,7 +330,7 @@ for idx in train_indices:
             feat = extract_enhanced_features(temp_path, sr)
             if feat is not None:
                 X_train_augmented.append(feat)
-                Y_train_augmented.append(label)
+                Y_train_augmented.append(label_train)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
         except Exception as e:
@@ -317,7 +345,7 @@ for idx in train_indices:
             feat = extract_enhanced_features(temp_path, sr)
             if feat is not None:
                 X_train_augmented.append(feat)
-                Y_train_augmented.append(label)
+                Y_train_augmented.append(label_train)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
         except:
@@ -332,7 +360,7 @@ for idx in train_indices:
             feat = extract_enhanced_features(temp_path, sr)
             if feat is not None:
                 X_train_augmented.append(feat)
-                Y_train_augmented.append(label)
+                Y_train_augmented.append(label_train)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
         except:
@@ -347,7 +375,7 @@ for idx in train_indices:
             feat = extract_enhanced_features(temp_path, sr)
             if feat is not None:
                 X_train_augmented.append(feat)
-                Y_train_augmented.append(label)
+                Y_train_augmented.append(label_train)
             if os.path.exists(temp_path):
                 os.remove(temp_path)
         except:
@@ -373,10 +401,8 @@ if len(X_train_augmented) > 0:
     # Normaliser les données augmentées avec le même scaler
     X_train_augmented = scaler.transform(X_train_augmented)
     
-    # Encoder les labels augmentés avec le même nombre de classes que Y_train
-    # to_categorical utilise le max+1 comme nombre de classes, donc on doit s'assurer
-    # que toutes les classes sont représentées
-    Y_train_augmented_categorical = to_categorical(Y_train_augmented, num_classes=num_classes)
+    # Encoder les labels augmentés avec le même nombre de classes (2 classes)
+    Y_train_augmented_categorical = to_categorical(Y_train_augmented, num_classes=2)
     
     # Combiner avec les données originales
     X_train_final = np.vstack([X_train, X_train_augmented])
@@ -419,7 +445,8 @@ model = Sequential([
     Dense(num_classes, activation='softmax')
 ])
 
-# Compiler avec un learning rate plus bas et decay
+# Compiler avec un learning rate adapté pour événements rares (plus bas pour apprendre patterns subtils)
+# Learning rate plus bas recommandé pour classes déséquilibrées
 optimizer = Adam(learning_rate=0.0001, decay=1e-6)
 model.compile(
     optimizer=optimizer,
@@ -433,9 +460,10 @@ model.summary()
 # CALLBACKS pour améliorer l'entraînement
 callbacks = [
     # Arrêt anticipé si pas d'amélioration
+    # Patience augmentée pour événements rares (plus de temps pour apprendre)
     EarlyStopping(
         monitor='val_loss',
-        patience=20,
+        patience=30,  # Augmenté de 20 à 30 pour événements rares
         restore_best_weights=True,
         verbose=1
     ),
@@ -463,10 +491,11 @@ print("="*60)
 
 history = model.fit(
     X_train_final, Y_train_final,
-    epochs=200,  # Plus d'epochs car on a early stopping
-    batch_size=16,  # Batch size plus petit pour plus de stabilité
+    epochs=10000,  # Nombre d'epochs maximum (early stopping peut arrêter avant)
+    batch_size=16,  # Batch size petit recommandé pour événements rares (mises à jour plus fréquentes)
     validation_data=(X_test, Y_test),
     callbacks=callbacks,
+    class_weight=class_weight_dict,  # Class weights pour gérer le déséquilibre
     verbose=1
 )
 

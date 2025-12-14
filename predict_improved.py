@@ -8,6 +8,22 @@ import tensorflow as tf
 import pickle
 from tensorflow.keras.models import load_model  # pyright: ignore
 
+# Configuration GPU
+print("TensorFlow version:", tf.__version__)
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    print(f"✓ {len(gpus)} GPU(s) détecté(s)")
+    try:
+        # Permettre la croissance de la mémoire GPU
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("✓ Configuration GPU activée")
+    except RuntimeError as e:
+        print(f"⚠ Erreur de configuration GPU: {e}")
+else:
+    print("⚠ Aucun GPU détecté, utilisation du CPU")
+print()
+
 # Configuration des chemins
 DATA_DIR = "data"
 ANNOTATION_CSV = os.path.join(DATA_DIR, "annotation.csv")
@@ -15,6 +31,7 @@ SLICES_DIR = os.path.join(DATA_DIR, "slices")
 MODELS_DIR = "models"
 MODEL_PATH = os.path.join(MODELS_DIR, "model_improved.h5")
 SCALER_PATH = os.path.join(MODELS_DIR, "scaler.pkl")
+LABEL_MAPPING_PATH = os.path.join(MODELS_DIR, "label_mapping.pkl")
 
 # Détecter quelle fonction chroma est disponible
 _chroma_func = None
@@ -107,21 +124,17 @@ def extract_enhanced_features(audio_path, sample_rate=22050):
         print(f"Erreur lors de l'extraction des caractéristiques: {e}")
         return None
 
-def get_real_labels(annotation_csv=ANNOTATION_CSV):
+def get_label_mapping():
     """
-    Lit les labels réels depuis le fichier annotation.csv
+    Charge le mapping des labels depuis le fichier sauvegardé
+    Retourne le mapping train_to_label (0->1, 1->2)
     """
-    if not os.path.exists(annotation_csv):
-        return None, None
-    
-    df = pd.read_csv(annotation_csv)
-    unique_labels = sorted(df['label'].unique())
-    
-    label_mapping = {}
-    for label in unique_labels:
-        label_mapping[label] = label
-    
-    return label_mapping, unique_labels
+    if os.path.exists(LABEL_MAPPING_PATH):
+        with open(LABEL_MAPPING_PATH, 'rb') as f:
+            return pickle.load(f)
+    else:
+        # Mapping par défaut si le fichier n'existe pas
+        return {0: 1, 1: 2}
 
 def predict_audio(model_path, audio_path, scaler_path=SCALER_PATH):
     """
@@ -136,8 +149,8 @@ def predict_audio(model_path, audio_path, scaler_path=SCALER_PATH):
         print(f"ATTENTION: Scaler non trouvé ({scaler_path}). Utilisation sans normalisation.")
         scaler = None
     
-    # Obtenir le mapping des labels réels
-    label_mapping, real_labels = get_real_labels()
+    # Obtenir le mapping des labels (train_to_label: 0->1, 1->2)
+    label_mapping = get_label_mapping()
     
     # Charger le modèle
     print(f"Chargement du modèle depuis {model_path}...")
@@ -162,21 +175,11 @@ def predict_audio(model_path, audio_path, scaler_path=SCALER_PATH):
     print("Prédiction en cours...")
     prediction = model.predict(features, verbose=0)
     
-    # Obtenir l'index du modèle avec la plus haute probabilité
+    # Obtenir l'index du modèle avec la plus haute probabilité (0 ou 1)
     model_index = np.argmax(prediction[0])
     
-    # Convertir l'index du modèle vers le label réel
-    if label_mapping and model_index in label_mapping:
-        predicted_label = label_mapping[model_index]
-    elif label_mapping and real_labels:
-        sorted_indices = np.argsort(prediction[0])[::-1]
-        for idx in sorted_indices:
-            if idx in label_mapping:
-                predicted_label = label_mapping[idx]
-                model_index = idx
-                break
-    else:
-        predicted_label = model_index
+    # Convertir l'index du modèle vers le label réel (1=bolides, 2=autres)
+    predicted_label = label_mapping.get(model_index, model_index + 1)
     
     confidence = prediction[0][model_index] * 100
     
@@ -185,20 +188,16 @@ def predict_audio(model_path, audio_path, scaler_path=SCALER_PATH):
     print(f"Résultat de la prédiction:")
     print(f"{'='*50}")
     print(f"Fichier audio: {audio_path}")
-    print(f"Label prédit: {predicted_label}")
+    label_name = "bolides" if predicted_label == 1 else "autres"
+    print(f"Label prédit: {predicted_label} ({label_name})")
     print(f"Confiance: {confidence:.2f}%")
     
-    if label_mapping and real_labels:
-        print(f"\nProbabilités pour les classes existantes:")
-        for real_label in real_labels:
-            model_idx = real_label
-            if model_idx < len(prediction[0]):
-                prob = prediction[0][model_idx] * 100
-                print(f"  Classe {real_label}: {prob:.2f}%")
-    else:
-        print(f"\nProbabilités pour toutes les classes:")
-        for i, prob in enumerate(prediction[0]):
-            print(f"  Classe {i}: {prob*100:.2f}%")
+    print(f"\nProbabilités pour les classes:")
+    for train_idx in [0, 1]:
+        real_label = label_mapping.get(train_idx, train_idx + 1)
+        label_name = "bolides" if real_label == 1 else "autres"
+        prob = prediction[0][train_idx] * 100
+        print(f"  Classe {real_label} ({label_name}): {prob:.2f}%")
     
     print(f"{'='*50}\n")
     

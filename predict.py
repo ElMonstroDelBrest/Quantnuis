@@ -6,6 +6,22 @@ import librosa
 import tensorflow as tf
 from tensorflow.keras.models import load_model  # pyright: ignore
 
+# Configuration GPU
+print("TensorFlow version:", tf.__version__)
+gpus = tf.config.list_physical_devices('GPU')
+if gpus:
+    print(f"✓ {len(gpus)} GPU(s) détecté(s)")
+    try:
+        # Permettre la croissance de la mémoire GPU
+        for gpu in gpus:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        print("✓ Configuration GPU activée")
+    except RuntimeError as e:
+        print(f"⚠ Erreur de configuration GPU: {e}")
+else:
+    print("⚠ Aucun GPU détecté, utilisation du CPU")
+print()
+
 def extract_features(audio_path):
     """
     Extrait les caractéristiques mel-spectrogramme d'un fichier audio

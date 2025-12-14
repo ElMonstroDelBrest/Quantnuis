@@ -67,3 +67,5 @@ else:
     print("  3. Vérifier CUDA: nvcc --version")
     print("\nConsultez SETUP_GPU.md pour plus de détails")
     sys.exit(1)
+
+
