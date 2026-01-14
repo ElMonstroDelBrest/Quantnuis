@@ -26,6 +26,43 @@ SLICES_DIR = "data/slices"
 ANNOTATION_CSV = "data/annotation.csv"
 SAMPLE_RATE = 22050
 
+# Couleurs ANSI
+class Colors:
+    HEADER = '\033[95m'
+    BLUE = '\033[94m'
+    CYAN = '\033[96m'
+    GREEN = '\033[92m'
+    YELLOW = '\033[93m'
+    RED = '\033[91m'
+    BOLD = '\033[1m'
+    DIM = '\033[2m'
+    END = '\033[0m'
+
+def print_header(title: str):
+    """Affiche un titre formaté"""
+    width = 40
+    print()
+    print(f"{Colors.CYAN}{Colors.BOLD}{'─' * width}{Colors.END}")
+    print(f"{Colors.CYAN}{Colors.BOLD}  {title.upper()}{Colors.END}")
+    print(f"{Colors.CYAN}{'─' * width}{Colors.END}")
+
+def print_success(msg: str):
+    print(f"{Colors.GREEN}[OK]{Colors.END} {msg}")
+
+def print_error(msg: str):
+    print(f"{Colors.RED}[ERREUR]{Colors.END} {msg}")
+
+def print_warning(msg: str):
+    print(f"{Colors.YELLOW}[!]{Colors.END} {msg}")
+
+def print_info(msg: str):
+    print(f"{Colors.BLUE}[i]{Colors.END} {msg}")
+
+def print_stat(label: str, value, indent: int = 0):
+    """Affiche une statistique alignée"""
+    spaces = "  " * indent
+    print(f"{spaces}{Colors.DIM}{label:<20}{Colors.END} {Colors.BOLD}{value}{Colors.END}")
+
 
 def add_noise(audio: np.ndarray, factor: float = 0.005) -> np.ndarray:
     """Ajoute du bruit gaussien"""
@@ -57,47 +94,56 @@ def get_next_num() -> int:
 def show_status():
     """Affiche les stats de la base de données"""
     if not os.path.exists(ANNOTATION_CSV):
-        print("❌ Pas de fichier d'annotations")
+        print_error("Pas de fichier d'annotations")
         return
     
     df = pd.read_csv(ANNOTATION_CSV)
-    print("\n📊 Base de données:")
-    print(f"   Total: {len(df)} fichiers")
     
+    print_header("Base de données")
+    print_stat("Total fichiers", len(df))
+    print()
+    
+    print(f"  {Colors.BOLD}Distribution des labels:{Colors.END}")
     for label in sorted(df['label'].unique()):
         count = (df['label'] == label).sum()
-        print(f"   Label {label}: {count}")
+        pct = count / len(df) * 100
+        bar = "█" * int(pct / 5) + "░" * (20 - int(pct / 5))
+        print(f"    Label {label}:  {bar} {count:>4} ({pct:.1f}%)")
     
     if 'augmentation' in df.columns:
         orig = df['augmentation'].isna().sum()
         aug = len(df) - orig
-        print(f"\n   Originaux: {orig}")
-        print(f"   Augmentés: {aug}")
+        print()
+        print(f"  {Colors.BOLD}Composition:{Colors.END}")
+        print(f"    Originaux:  {orig}")
+        print(f"    Augmentés:  {aug}")
 
 
 def augment(target_label: int = None):
     """Augmente les données"""
     if not os.path.exists(ANNOTATION_CSV):
-        print("❌ Pas de fichier d'annotations")
+        print_error("Pas de fichier d'annotations")
         return
     
     df = pd.read_csv(ANNOTATION_CSV)
     
+    print_header("Augmentation")
+    
     # Filtrer
     if target_label is not None:
         to_augment = df[df['label'] == target_label]
-        print(f"🎯 Augmentation du label {target_label}: {len(to_augment)} fichiers")
+        print_info(f"Cible: label {target_label} ({len(to_augment)} fichiers)")
     else:
         to_augment = df
-        print(f"🎯 Augmentation de tout: {len(to_augment)} fichiers")
+        print_info(f"Cible: tous les fichiers ({len(to_augment)})")
     
     # Ignorer les déjà augmentés
     if 'augmentation' in df.columns:
         to_augment = to_augment[to_augment['augmentation'].isna()]
-        print(f"   ({len(to_augment)} originaux)")
+        print(f"       {Colors.DIM}→ {len(to_augment)} originaux à traiter{Colors.END}")
     
     if len(to_augment) == 0:
-        print("Rien à augmenter")
+        print_warning("Rien à augmenter")
         return
     
     # Augmentations à appliquer
@@ -109,14 +155,22 @@ def augment(target_label: int = None):
         ("pitch_down", lambda a, sr: shift_pitch(a, sr, -2)),
     ]
     
-    print(f"\n📈 {len(to_augment) * len(augmentations)} fichiers seront créés")
-    confirm = input("Continuer? (o/n): ").strip().lower()
+    total_to_create = len(to_augment) * len(augmentations)
+    print()
+    print(f"  {Colors.BOLD}Transformations:{Colors.END}")
+    for name, _ in augmentations:
+        print(f"    • {name}")
+    print()
+    print_info(f"{total_to_create} fichiers seront créés")
+    
+    confirm = input(f"\n  Continuer? {Colors.DIM}(o/n){Colors.END} ").strip().lower()
     if confirm not in ['o', 'y', 'oui', 'yes']:
-        print("Annulé")
+        print_warning("Annulé par l'utilisateur")
         return
     
     next_num = get_next_num()
     new_rows = []
+    errors = 0
     
     # Ajouter colonnes si nécessaire
     if 'source' not in df.columns:
@@ -124,16 +178,24 @@ def augment(target_label: int = None):
     if 'augmentation' not in df.columns:
         df['augmentation'] = pd.NA
     
-    for _, row in to_augment.iterrows():
+    print()
+    total = len(to_augment)
+    for idx, (_, row) in enumerate(to_augment.iterrows(), 1):
         path = os.path.join(SLICES_DIR, row['nfile'])
         if not os.path.exists(path):
             continue
+        
+        # Barre de progression
+        progress = int(idx / total * 30)
+        bar = f"[{'█' * progress}{'░' * (30 - progress)}]"
+        print(f"\r  {bar} {idx}/{total}", end="", flush=True)
         
         try:
             audio, sr = librosa.load(path, sr=SAMPLE_RATE)
             audio = librosa.util.normalize(audio)
         except Exception as e:
-            print(f"⚠ Erreur {row['nfile']}: {e}")
+            print(f"\n{Colors.YELLOW}  [!] Erreur lecture: {row['nfile']}{Colors.END}")
+            errors += 1
             continue
         
         for aug_name, aug_func in augmentations:
@@ -155,34 +217,41 @@ def augment(target_label: int = None):
                 
                 next_num += 1
             except Exception as e:
-                print(f"⚠ Erreur {aug_name} sur {row['nfile']}: {e}")
+                errors += 1
+    
+    print()  # Nouvelle ligne après la barre de progression
     
     # Sauvegarder
     if new_rows:
         df_new = pd.DataFrame(new_rows)
         df_combined = pd.concat([df, df_new], ignore_index=True)
         df_combined.to_csv(ANNOTATION_CSV, index=False)
-        print(f"\n✓ {len(new_rows)} fichiers créés")
-        print(f"📊 Total: {len(df_combined)} fichiers")
+        
+        print()
+        print_header("Résultat")
+        print_success(f"{len(new_rows)} fichiers créés")
+        print_stat("Total en base", len(df_combined))
+        if errors > 0:
+            print_warning(f"{errors} erreurs rencontrées")
 
 
 def main():
     if len(sys.argv) < 2:
-        print("\n🔊 AUGMENTATION DE DONNÉES")
-        print("=" * 30)
-        print("1. Voir le statut")
-        print("2. Augmenter tout")
-        print("3. Augmenter un label")
-        print("0. Quitter")
+        print_header("Augmentation de données")
+        print()
+        print(f"  {Colors.BOLD}1{Colors.END}  Voir le statut")
+        print(f"  {Colors.BOLD}2{Colors.END}  Augmenter tout")
+        print(f"  {Colors.BOLD}3{Colors.END}  Augmenter un label")
+        print(f"  {Colors.DIM}0  Quitter{Colors.END}")
         
-        choice = input("\nChoix: ").strip()
+        choice = input(f"\n  Choix: ").strip()
         
         if choice == "1":
             show_status()
         elif choice == "2":
             augment()
         elif choice == "3":
-            label = input("Label (1 ou 2): ").strip()
+            label = input(f"  Label {Colors.DIM}(1 ou 2){Colors.END}: ").strip()
             augment(int(label))
         elif choice == "0":
             pass
@@ -194,13 +263,17 @@ def main():
             label = int(sys.argv[2]) if len(sys.argv) > 2 else None
             augment(label)
         else:
-            print("Usage: python data_augmentation.py [status|augment [label]]")
+            print_error("Commande inconnue")
+            print(f"  {Colors.DIM}Usage: python data_augmentation.py [status|augment [label]]{Colors.END}")
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n⚠ Annulé")
+        print()
+        print_warning("Annulé par l'utilisateur")
+    except ValueError as e:
+        print_error(f"Valeur invalide: {e}")
     except Exception as e:
-        print(f"❌ Erreur: {e}")
+        print_error(f"Erreur inattendue: {e}")
