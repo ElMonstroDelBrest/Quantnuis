@@ -1,0 +1,12 @@
+mfcc_39_mean
+mfcc_11_std
+mfcc_37_mean
+mfcc_21_mean
+mfcc_24_std
+spectral_bandwidth_mean
+mfcc_31_std
+mfcc_33_mean
+mfcc_17_mean
+mfcc_6_mean
+mfcc_12_std
+chroma_7_mean

@@ -116,7 +116,6 @@ def extract_massive_features(file_path: str) -> dict | None:
             features['tempo'] = 0.0
 
         # --- 7. STATISTIQUES GLOBALES ---
-        features['duration'] = float(len(y) / sr)
         features['energy'] = float(np.sum(y**2))
         features['max_amplitude'] = float(np.max(np.abs(y)))
 
